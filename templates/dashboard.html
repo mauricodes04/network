@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Packet Monitor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f0f1a;
+    color: #e0e0e0;
+    min-height: 100vh;
+}
+
+.header {
+    background: #1a1a2e;
+    border-bottom: 1px solid #2a2a4a;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4ecca3;
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.host-info {
+    font-size: 14px;
+    color: #8888aa;
+    cursor: pointer;
+    user-select: none;
+}
+.host-info .ip-reveal { display: none; color: #5b9bd5; font-family: monospace; }
+.host-info.revealed .hostname { display: none; }
+.host-info.revealed .ip-reveal { display: inline; }
+
+.pkt-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 24px;
+    background: #1a1a2e;
+    border-bottom: 1px solid #2a2a4a;
+}
+.pkt-count { font-size: 13px; color: #6b6b8d; }
+.pkt-actions { display: flex; gap: 8px; align-items: center; }
+.pkt-filter {
+    background: #12121f;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    padding: 5px 10px;
+    color: #e0e0e0;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    width: 280px;
+}
+.pkt-filter::placeholder { color: #4a4a6a; }
+.pkt-filter:focus { outline: none; border-color: #5b9bd5; }
+.btn-pause, .btn-clear {
+    font-size: 12px;
+    padding: 5px 14px;
+    border-radius: 4px;
+    border: 1px solid #2a2a4a;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 500;
+}
+.btn-pause.running { background: #1c3a2e; color: #4ecca3; border-color: #2a5a4a; }
+.btn-pause.paused { background: #3a1c1c; color: #e94560; border-color: #5a2a2a; }
+.btn-clear { background: #16213e; color: #8888aa; }
+.btn-clear:hover { background: #1e2d4d; color: #bbb; }
+
+.pkt-table-wrap {
+    height: calc(100vh - 106px);
+    overflow-y: auto;
+    background: #0f0f1a;
+    overflow-anchor: none;
+}
+#pktTable {
+    width: 100%;
+    font-size: 12px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+#pktTable thead th {
+    background: #16213e;
+    color: #8888aa;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 7px 8px;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    border-bottom: 1px solid #2a2a4a;
+}
+#pktTable td {
+    padding: 3px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+#pktTable col.col-no { width: 78px; }
+#pktTable col.col-time { width: 85px; }
+#pktTable col.col-src-host { width: auto; }
+#pktTable col.col-src-mac { width: 120px; }
+#pktTable col.col-src-ip { width: 115px; }
+#pktTable col.col-sport { width: 60px; }
+#pktTable col.col-dst-host { width: auto; }
+#pktTable col.col-dst-mac { width: 120px; }
+#pktTable col.col-dst-ip { width: 115px; }
+#pktTable col.col-dport { width: 60px; }
+#pktTable col.col-proto { width: 65px; }
+
+#pktTable th + th,
+#pktTable td + td { border-left: 1px solid rgba(255,255,255,0.06); }
+#pktTable thead th + th { border-left-color: rgba(255,255,255,0.1); }
+
+.pkt-row-tcp, .pkt-row-tls { background: #1a2a3e; }
+.pkt-row-http { background: #2a3a2a; }
+.pkt-row-udp { background: #251a3e; }
+.pkt-row-dns { background: #1a2a40; }
+.pkt-row-icmp { background: #3e1a2a; }
+.pkt-row-other { background: #1a1a2e; }
+#pktTable tbody tr:hover { background: rgba(91,155,213,0.15); }
+
+.pkt-row-tcp td.pkt-proto, .pkt-row-tls td.pkt-proto { color: #7ab8e0; }
+.pkt-row-http td.pkt-proto { color: #7ae07a; }
+.pkt-row-udp td.pkt-proto { color: #b87ae0; }
+.pkt-row-dns td.pkt-proto { color: #7abce0; }
+.pkt-row-icmp td.pkt-proto { color: #e0a07a; }
+
+tbody.conv.hidden { display: none; }
+
+tr.conv-header > td {
+    position: relative;
+    padding: 5px 8px 5px 26px;
+    background: #141428;
+    border-top: 1px solid #2a2a4a;
+    border-bottom: 1px solid #2a2a4a;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 12px;
+    color: #c8cbe0;
+}
+tr.conv-header:hover > td { background: #1b1b38; }
+
+/* Green = traffic within the active window, grey = gone quiet, red = TCP FIN/RST seen. */
+tbody.conv.state-active   > tr.conv-header > td { border-left: 3px solid #4ecca3; color: #cfe9dd; }
+tbody.conv.state-quiet    > tr.conv-header > td { border-left: 3px solid #4a4a6a; color: #9a9ab5; }
+tbody.conv.state-ended    > tr.conv-header > td { border-left: 3px solid #e94560; color: #edc2c9; }
+.conv-state {
+    float: right;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding-left: 10px;
+}
+tbody.conv.state-active > tr.conv-header .conv-state { color: #4ecca3; }
+tbody.conv.state-quiet  > tr.conv-header .conv-state { color: #6b6b8d; }
+tbody.conv.state-ended  > tr.conv-header .conv-state { color: #e94560; }
+.conv-chevron {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    margin-top: -6px;
+    font-size: 9px;
+    color: #6f7aa6;
+    transform: rotate(90deg);
+    transition: transform 0.12s;
+}
+tbody.conv.collapsed .conv-chevron { transform: rotate(0deg); }
+tbody.conv.collapsed tr.pkt-row { display: none; }
+.conv-arrow { color: #5b9bd5; margin: 0 6px; }
+.conv-count {
+    margin-left: 8px;
+    font-size: 11px;
+    background: #2a2a4a;
+    color: #9aa3c8;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-family: 'JetBrains Mono', monospace;
+}
+.conv-shown { color: #6b6b8d; font-size: 11px; margin-left: 6px; }
+
+/* Details panel: AI analysis on top, protocol reference below. */
+tbody.conv.collapsed tr.conv-details { display: none; }
+tr.conv-details > td {
+    padding: 0;
+    background: #12121f;
+    border-bottom: 1px solid #2a2a4a;
+    white-space: normal;
+    overflow: visible;
+}
+.det {
+    padding: 10px 14px 12px 26px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.det-sec { margin-bottom: 12px; }
+.det-sec:last-child { margin-bottom: 0; }
+.det-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #6f7aa6;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.det-body {
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: #c8cbe0;
+    white-space: pre-wrap;
+}
+.det-muted { color: #6b6b8d; font-style: italic; font-size: 12px; }
+.det-model {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #5b9bd5;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.btn-ai {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid #2a4a5a;
+    background: #16273a;
+    color: #5b9bd5;
+    cursor: pointer;
+    font-family: inherit;
+}
+.btn-ai:hover { background: #1e3550; color: #8fc4ee; }
+.btn-ai:disabled { opacity: 0.5; cursor: default; }
+.det-ports { display: flex; flex-wrap: wrap; gap: 6px; }
+.det-port {
+    background: #1b1b38;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    padding: 4px 9px;
+    font-size: 11.5px;
+    color: #c8cbe0;
+}
+.det-port b { color: #7abce0; font-family: 'JetBrains Mono', monospace; }
+.det-port .det-desc { color: #8888aa; }
+.det-port .det-x { color: #6b6b8d; font-family: 'JetBrains Mono', monospace; }
+.det-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 11.5px;
+    color: #9aa3c8;
+    font-family: 'JetBrains Mono', monospace;
+}
+.det-stats b { color: #c8cbe0; font-weight: 600; }
+
+/* overflow:visible is load-bearing: the global td overflow:hidden clips the
+   connector at each cell box, breaking the line at every row border. */
+tbody.conv tr.pkt-row > td:first-child {
+    position: relative;
+    padding-left: 26px;
+    overflow: visible;
+}
+tbody.conv tr.pkt-row > td:first-child::before {
+    content: "";
+    position: absolute;
+    left: 13px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #39406b;
+}
+tbody.conv tr.pkt-row:last-child > td:first-child::before { bottom: 50%; }
+tbody.conv tr.pkt-row > td:first-child::after {
+    content: "";
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    width: 7px;
+    height: 1px;
+    background: #39406b;
+}
+/* The menu is absolutely positioned; #pktTable td { overflow:hidden } would clip it
+   to the cell box, so the IP cells opt out. Content is short, no ellipsis needed. */
+#pktTable td.ip-cell { overflow: visible; }
+.ip-action-wrap { position: relative; display: inline-block; }
+.ip-action-wrap:hover .ip-action-menu { display: block; }
+.ip-action-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    min-width: 160px;
+    padding: 4px 0;
+    white-space: nowrap;
+}
+.ip-action-menu a {
+    display: block;
+    padding: 7px 14px;
+    font-size: 12px;
+    color: #c0c0d0;
+    text-decoration: none;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.ip-action-menu a:hover { background: #2a2a4a; color: #fff; }
+.ip-action-menu .menu-icon {
+    display: inline-block;
+    width: 20px;
+    text-align: center;
+    margin-right: 4px;
+    font-size: 11px;
+}
+
+.whois-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+.whois-overlay.visible { display: flex; }
+.whois-panel {
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 10px;
+    width: 520px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.whois-panel-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid #2a2a4a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.whois-panel-header h3 { font-size: 15px; color: #fff; font-weight: 600; }
+.whois-panel-close {
+    background: none;
+    border: none;
+    color: #6b6b8d;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.whois-panel-close:hover { color: #fff; }
+.whois-panel-body { padding: 16px 18px; }
+.whois-row {
+    display: flex;
+    padding: 6px 0;
+    border-bottom: 1px solid #1f1f3a;
+    font-size: 13px;
+}
+.whois-row:last-child { border-bottom: none; }
+.whois-label { width: 130px; flex-shrink: 0; color: #6b6b8d; font-weight: 500; }
+.whois-value {
+    color: #e0e0e0;
+    word-break: break-all;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+}
+.whois-loading {
+    text-align: center;
+    padding: 30px;
+    color: #6b6b8d;
+    font-style: italic;
+}
+
+.ip-stat .ip-action-wrap { color: #7abce0; }
+
+/* Recon panel */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    background: #16213e;
+    border-bottom: 1px solid #2a2a4a;
+    padding: 0 24px;
+}
+.tab-btn {
+    padding: 9px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #6b6b8d;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+}
+.tab-btn:hover { color: #aaa; }
+.tab-btn.active { color: #5b9bd5; border-bottom-color: #5b9bd5; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.recon-wrap {
+    height: calc(100vh - 142px);
+    overflow-y: auto;
+    padding: 18px 24px 40px;
+}
+.recon-target {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.recon-target label { font-size: 12px; color: #6f7aa6; text-transform: uppercase; letter-spacing: 0.8px; }
+.recon-target input {
+    background: #12121f;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #e0e0e0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    width: 260px;
+}
+.recon-target input:focus { outline: none; border-color: #5b9bd5; }
+
+.recon-cmd {
+    background: #12121f;
+    border: 1px solid #2a4a5a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+.recon-cmd code {
+    flex: 1;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    color: #7ae07a;
+    word-break: break-all;
+    line-height: 1.6;
+}
+.recon-note {
+    font-size: 11.5px;
+    color: #6b6b8d;
+    margin-bottom: 18px;
+    line-height: 1.6;
+}
+.recon-note b { color: #e0a07a; }
+
+.recon-group { margin-bottom: 18px; }
+.recon-group h4 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #6f7aa6;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.recon-opts { display: flex; flex-wrap: wrap; gap: 7px; }
+.recon-opt {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 5px;
+    padding: 6px 11px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #c0c0d0;
+    font-family: inherit;
+    text-align: left;
+    max-width: 260px;
+}
+.recon-opt:hover { border-color: #3a5a7a; background: #1e2740; }
+.recon-opt.on { background: #16273a; border-color: #5b9bd5; color: #8fc4ee; }
+.recon-opt .ro-flag {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: #6f7aa6;
+}
+.recon-opt.on .ro-flag { color: #5b9bd5; }
+.recon-opt .ro-root { color: #e0a07a; font-size: 10px; }
+.recon-opt { position: relative; }
+.recon-opt .ro-desc {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 200;
+    width: 270px;
+    background: #12121f;
+    border: 1px solid #3a5a7a;
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    padding: 8px 11px;
+    font-size: 11.5px;
+    color: #c0c0d0;
+    line-height: 1.5;
+    white-space: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    pointer-events: none;
+}
+.recon-opt:hover .ro-desc { display: block; }
+.recon-opt .
+.recon-preset {
+    background: #1b2a1b;
+    border-color: #2a5a2a;
+    color: #9ae09a;
+}
+.recon-preset:hover { background: #223a22; border-color: #3a7a3a; }
+
+.pkt-dir {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    margin-top: -7px;
+    font-size: 10px;
+    color: #5b9bd5;
+}
+.pkt-dir.rev { color: #c084fc; }
+
+/* Handles are positioned against the sticky thead th; adding position:relative there breaks sticky. */
+.col-resize-handle {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    z-index: 3;
+}
+.col-resize-handle:hover,
+.col-resize-handle.dragging { background: rgba(91,155,213,0.4); }
+body.col-resizing, body.col-resizing * {
+    cursor: col-resize !important;
+    user-select: none;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1><span class="status-dot"></span>Packet Monitor</h1>
+    <div class="host-info" onclick="this.classList.toggle('revealed')" title="Click to toggle IP">
+        <span class="hostname">{{ host_hostname }}</span>
+        <span class="ip-reveal">{{ host_ip }}</span>
+    </div>
+</div>
+
+<div class="tab-bar">
+    <button class="tab-btn active" id="tabBtnPackets" onclick="switchTab('packets')">Packets</button>
+    <button class="tab-btn" id="tabBtnRecon" onclick="switchTab('recon')">Recon Tools</button>
+</div>
+
+<div class="tab-pane active" id="pane-packets">
+<div class="pkt-toolbar">
+    <span class="pkt-count" id="pktCount">0 packets</span>
+    <div class="pkt-actions">
+        <input type="text" class="pkt-filter" id="pktFilter" placeholder="Filter: ip, host, mac, port, protocol...">
+        <button class="btn-pause running" id="pktPauseBtn" onclick="togglePause()">Capturing</button>
+        <button class="btn-clear" onclick="clearPackets()">Clear</button>
+    </div>
+</div>
+
+<div class="pkt-table-wrap" id="pktTableWrap">
+    <table id="pktTable">
+        <colgroup>
+            <col class="col-no">
+            <col class="col-time">
+            <col class="col-src-host">
+            <col class="col-src-mac">
+            <col class="col-src-ip">
+            <col class="col-sport">
+            <col class="col-dst-host">
+            <col class="col-dst-mac">
+            <col class="col-dst-ip">
+            <col class="col-dport">
+            <col class="col-proto">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>No.</th>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Src MAC</th>
+                <th>Source IP</th>
+                <th>Src Port</th>
+                <th>Destination</th>
+                <th>Dst MAC</th>
+                <th>Dest IP</th>
+                <th>Dst Port</th>
+                <th>Protocol</th>
+            </tr>
+        </thead>
+    </table>
+</div>
+</div>
+
+<div class="tab-pane" id="pane-recon">
+<div class="recon-wrap">
+    <div class="recon-target">
+        <label for="reconTarget">Target</label>
+        <input type="text" id="reconTarget" value="192.168.1.0/24" spellcheck="false">
+        <span class="det-muted">single IP, or a CIDR range for sweeps</span>
+    </div>
+
+    <div class="recon-cmd">
+        <code id="reconCmd">nmap 192.168.1.0/24</code>
+        <button class="btn-ai" onclick="copyRecon()" id="reconCopy">Copy</button>
+    </div>
+
+    <div class="recon-note">
+        This builds a command for you to run in a terminal &mdash; it does not scan anything by itself.
+        Options marked <b>root</b> need <code>sudo</code>.
+        Only scan networks and hosts you are responsible for; active scanning is intrusive
+        and can disrupt fragile devices such as printers and embedded controllers.
+    </div>
+
+    <div class="recon-group">
+        <h4>Presets</h4>
+        <div class="recon-opts" id="reconPresets"></div>
+    </div>
+
+    <div id="reconGroups"></div>
+</div>
+</div>
+
+<div class="whois-overlay" id="whoisOverlay" onclick="if(event.target===this)closeWhois()">
+    <div class="whois-panel">
+        <div class="whois-panel-header">
+            <h3 id="whoisTitle">WhoIS</h3>
+            <button class="whois-panel-close" onclick="closeWhois()">&times;</button>
+        </div>
+        <div class="whois-panel-body" id="whoisBody"></div>
+    </div>
+</div>
+
+<script>
+const MAX_TOTAL_ROWS = 2000;
+const MAX_ROWS_PER_GROUP = 200;
+const MAX_GROUPS = 150;
+const GROUP_IDLE_MS = 120000;
+const EPOCH_MS = 2000;
+const PAUSE_BUFFER_MAX = 5000;
+const ACTIVE_WINDOW_MS = 60000;
+
+let paused = false;
+let pausedBuffer = [];
+let pausedDropped = 0;
+let lastNo = 0;
+let autoFollow = true;
+let filterText = "";
+
+const groups = new Map();
+let groupOrder = [];
+let totalRows = 0;
+let renderQueued = false;
+
+function escHtml(s) {
+    if (!s) return "";
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function escAttr(s) {
+    if (!s) return "";
+    return s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function ipMenu(ip) {
+    const e = encodeURIComponent(ip);
+    const a = escAttr(ip);
+    return `<span class="ip-action-wrap">${escHtml(ip)}<span class="ip-action-menu">` +
+        `<a href="javascript:void(0)" onclick="event.stopPropagation(); openRecon('${a}')"><span class="menu-icon">&#128736;</span>Recon Tools</a>` +
+        `<a href="javascript:void(0)" onclick="event.stopPropagation(); showWhois('${a}')"><span class="menu-icon">&#128270;</span>WhoIS / RDAP</a>` +
+        `<a href="https://www.virustotal.com/gui/ip-address/${e}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><span class="menu-icon">&#128737;</span>VirusTotal</a>` +
+        `<a href="https://www.shodan.io/host/${e}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><span class="menu-icon">&#128225;</span>Shodan</a>` +
+        `<a href="https://www.abuseipdb.com/check/${e}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><span class="menu-icon">&#9888;</span>AbuseIPDB</a>` +
+        `<a href="https://viz.greynoise.io/ip/${e}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><span class="menu-icon">&#127760;</span>GreyNoise</a>` +
+        `</span></span>`;
+}
+
+function showWhois(ip) {
+    const body = document.getElementById("whoisBody");
+    document.getElementById("whoisTitle").textContent = `WhoIS: ${ip}`;
+    body.innerHTML = '<div class="whois-loading">Looking up RDAP&hellip;</div>';
+    document.getElementById("whoisOverlay").classList.add("visible");
+
+    fetch(`/api/enrichment/${encodeURIComponent(ip)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data || data.error) {
+                body.innerHTML = '<div class="whois-loading">No enrichment data available.</div>';
+                return;
+            }
+            const fields = [
+                ["IP Address", ip],
+                ["Reverse DNS", data.reverse_dns],
+                ["Organization", data.rdap_org],
+                ["Country", data.rdap_country],
+                ["Network Name", data.rdap_netname],
+                ["IP Range", data.rdap_range],
+                ["Open Ports", data.shodan_ports],
+                ["Vulnerabilities", data.shodan_vulns],
+                ["OS", data.shodan_os],
+                ["Looked Up", data.last_updated],
+            ];
+            const html = fields.filter(([, v]) => v)
+                .map(([l, v]) => `<div class="whois-row"><span class="whois-label">${l}</span><span class="whois-value">${escHtml(v)}</span></div>`)
+                .join("");
+            body.innerHTML = html || '<div class="whois-loading">No data fields available.</div>';
+        })
+        .catch(() => {
+            body.innerHTML = '<div class="whois-loading">Failed to load enrichment data.</div>';
+        });
+}
+
+function closeWhois() {
+    document.getElementById("whoisOverlay").classList.remove("visible");
+}
+
+// ===== Recon tools =====
+const reconSelected = new Map();   // group index -> Set of flags
+let reconGroups = [];
+
+function switchTab(name) {
+    document.getElementById("pane-packets").classList.toggle("active", name === "packets");
+    document.getElementById("pane-recon").classList.toggle("active", name === "recon");
+    document.getElementById("tabBtnPackets").classList.toggle("active", name === "packets");
+    document.getElementById("tabBtnRecon").classList.toggle("active", name === "recon");
+}
+
+function openRecon(ip) {
+    document.getElementById("reconTarget").value = ip;
+    switchTab("recon");
+    buildReconCmd();
+}
+
+function buildReconCmd() {
+    const target = document.getElementById("reconTarget").value.trim() || "<target>";
+    const flags = [];
+    let needsRoot = false;
+    reconGroups.forEach((grp, gi) => {
+        const chosen = reconSelected.get(gi);
+        if (!chosen) return;
+        grp.options.forEach(o => {
+            if (chosen.has(o.flag)) {
+                flags.push(o.flag);
+                if (o.root) needsRoot = true;
+            }
+        });
+    });
+    const cmd = `${needsRoot ? "sudo " : ""}nmap ${flags.join(" ")}${flags.length ? " " : ""}${target}`;
+    document.getElementById("reconCmd").textContent = cmd.replace(/\s+/g, " ");
+}
+
+function toggleReconOpt(gi, flag, exclusive, btn) {
+    let chosen = reconSelected.get(gi);
+    if (!chosen) { chosen = new Set(); reconSelected.set(gi, chosen); }
+    const parent = btn.parentElement;
+    if (exclusive) {
+        const had = chosen.has(flag);
+        chosen.clear();
+        parent.querySelectorAll(".recon-opt").forEach(b => b.classList.remove("on"));
+        if (!had) { chosen.add(flag); btn.classList.add("on"); }
+    } else {
+        if (chosen.has(flag)) { chosen.delete(flag); btn.classList.remove("on"); }
+        else { chosen.add(flag); btn.classList.add("on"); }
+    }
+    buildReconCmd();
+}
+
+function applyPreset(flags) {
+    reconSelected.clear();
+    document.querySelectorAll("#reconGroups .recon-opt").forEach(b => b.classList.remove("on"));
+    reconGroups.forEach((grp, gi) => {
+        const set = new Set();
+        grp.options.forEach(o => {
+            if (flags.includes(o.flag)) {
+                set.add(o.flag);
+                const btn = document.querySelector(`[data-gi="${gi}"][data-flag="${CSS.escape(o.flag)}"]`);
+                if (btn) btn.classList.add("on");
+            }
+        });
+        if (set.size) reconSelected.set(gi, set);
+    });
+    buildReconCmd();
+}
+
+function copyRecon() {
+    const cmd = document.getElementById("reconCmd").textContent;
+    const btn = document.getElementById("reconCopy");
+    navigator.clipboard.writeText(cmd)
+        .then(() => { btn.textContent = "Copied"; setTimeout(() => btn.textContent = "Copy", 1200); })
+        .catch(() => { btn.textContent = "Copy failed"; setTimeout(() => btn.textContent = "Copy", 1200); });
+}
+
+function initRecon() {
+    fetch("/api/recon/options")
+        .then(r => r.json())
+        .then(d => {
+            reconGroups = d.groups;
+            document.getElementById("reconPresets").innerHTML = d.presets.map(p =>
+                `<button class="recon-opt recon-preset" title="${escAttr(p.desc)}">` +
+                `${escHtml(p.name)}<span class="ro-desc">${escHtml(p.desc)}</span></button>`
+            ).join("");
+            document.querySelectorAll("#reconPresets .recon-opt").forEach((b, i) => {
+                b.addEventListener("click", () => applyPreset(d.presets[i].flags));
+            });
+
+            document.getElementById("reconGroups").innerHTML = d.groups.map((g, gi) =>
+                `<div class="recon-group"><h4>${escHtml(g.group)}` +
+                (g.exclusive ? ` <span class="det-muted">pick one</span>` : "") + `</h4>` +
+                `<div class="recon-opts">` +
+                g.options.map(o =>
+                    `<button class="recon-opt" data-gi="${gi}" data-flag="${escAttr(o.flag)}">` +
+                    `${escHtml(o.label)}${o.root ? ' <span class="ro-root">root</span>' : ""}` +
+                    `<span class="ro-flag">${escHtml(o.flag)}</span>` +
+                    `<span class="ro-desc">${escHtml(o.desc)}</span></button>`
+                ).join("") + `</div></div>`
+            ).join("");
+
+            document.querySelectorAll("#reconGroups .recon-opt").forEach(btn => {
+                const gi = +btn.dataset.gi;
+                btn.addEventListener("click", () =>
+                    toggleReconOpt(gi, btn.dataset.flag, d.groups[gi].exclusive, btn));
+            });
+
+            document.getElementById("reconTarget").addEventListener("input", buildReconCmd);
+            buildReconCmd();
+        })
+        .catch(err => console.error("Recon options failed:", err));
+}
+
+function rowClass(proto) {
+    const p = (proto || "").toLowerCase();
+    return ["dns","tls","http","tcp","udp","icmp"].includes(p) ? `pkt-row-${p}` : "pkt-row-other";
+}
+
+function timeShort(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const p = (n, w = 2) => String(n).padStart(w, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+function rowMatches(p) {
+    if (!filterText) return true;
+    const f = filterText.toLowerCase();
+    return ["src_ip","dst_ip","protocol","src_hostname","dst_hostname","src_mac","dst_mac"]
+            .some(k => p[k] && p[k].toLowerCase().includes(f))
+        || (p.src_port != null && String(p.src_port).includes(f))
+        || (p.dst_port != null && String(p.dst_port).includes(f));
+}
+
+function groupMatches(g) {
+    if (!filterText) return true;
+    const f = filterText.toLowerCase();
+    return [g.ipA, g.ipB, g.hostA, g.hostB].some(v => v && v.toLowerCase().includes(f));
+}
+
+function convKey(p) {
+    return p.src_ip < p.dst_ip
+        ? `${p.src_ip}|${p.dst_ip}`
+        : `${p.dst_ip}|${p.src_ip}`;
+}
+
+function getOrCreateGroup(p) {
+    const key = convKey(p);
+    let g = groups.get(key);
+    if (g) return g;
+
+    const forward = p.src_ip < p.dst_ip;
+    g = {
+        key,
+        ipA: forward ? p.src_ip : p.dst_ip,
+        ipB: forward ? p.dst_ip : p.src_ip,
+        hostA: forward ? p.src_hostname : p.dst_hostname,
+        hostB: forward ? p.dst_hostname : p.src_hostname,
+        initiator: p.src_ip,
+        total: 0,
+        shown: 0,
+        lastSeen: p.no,
+        collapsed: true,
+        closed: false,
+        lastTouch: Date.now(),
+        tbody: document.createElement("tbody"),
+        countEl: null,
+        shownEl: null,
+        stateEl: null,
+    };
+    g.tbody.className = "conv collapsed";
+
+    const header = document.createElement("tr");
+    header.className = "conv-header";
+    const td = document.createElement("td");
+    td.colSpan = 11;
+    td.innerHTML =
+        `<span class="conv-chevron">&#9654;</span>` +
+        `<span class="conv-a"></span><span class="conv-arrow">&#8646;</span><span class="conv-b"></span>` +
+        `<span class="conv-count">0</span><span class="conv-shown"></span>` +
+        `<span class="conv-state"></span>`;
+    header.appendChild(td);
+    header.addEventListener("click", () => toggleGroup(g));
+    g.tbody.appendChild(header);
+
+    td.querySelector(".conv-a").textContent = g.hostA || g.ipA;
+    td.querySelector(".conv-b").textContent = g.hostB || g.ipB;
+    td.title = `${g.ipA} ${String.fromCharCode(8646)} ${g.ipB}`;
+    g.countEl = td.querySelector(".conv-count");
+    g.shownEl = td.querySelector(".conv-shown");
+    g.stateEl = td.querySelector(".conv-state");
+
+    groups.set(key, g);
+    groupOrder.push(g);
+    document.getElementById("pktTable").appendChild(g.tbody);
+    return g;
+}
+
+function buildRow(p, g) {
+    const tr = document.createElement("tr");
+    tr.className = `pkt-row ${rowClass(p.protocol)}`;
+    const rev = p.src_ip !== g.initiator;
+    tr.innerHTML =
+        `<td><span class="pkt-dir${rev ? " rev" : ""}">${rev ? "&#8592;" : "&#8594;"}</span>${p.no}</td>` +
+        `<td>${timeShort(p.timestamp)}</td>` +
+        `<td title="${escAttr(p.src_hostname || p.src_ip)}">${escHtml(p.src_hostname)}</td>` +
+        `<td>${escHtml(p.src_mac)}</td>` +
+        `<td class="ip-cell">${ipMenu(p.src_ip)}</td>` +
+        `<td>${p.src_port != null ? p.src_port : ""}</td>` +
+        `<td title="${escAttr(p.dst_hostname || p.dst_ip)}">${escHtml(p.dst_hostname)}</td>` +
+        `<td>${escHtml(p.dst_mac)}</td>` +
+        `<td class="ip-cell">${ipMenu(p.dst_ip)}</td>` +
+        `<td>${p.dst_port != null ? p.dst_port : ""}</td>` +
+        `<td class="pkt-proto">${escHtml(p.protocol)}</td>`;
+    return tr;
+}
+
+function ensureDetailsRow(g) {
+    if (g.detailsRow) return g.detailsRow;
+    const tr = document.createElement("tr");
+    tr.className = "conv-details";
+    const td = document.createElement("td");
+    td.colSpan = 11;
+    td.innerHTML =
+        `<div class="det">` +
+        `<div class="det-sec">` +
+        `<div class="det-head">AI Analysis` +
+        `<button class="btn-ai" data-tier="standard">Analyze</button>` +
+        `<button class="btn-ai" data-tier="deep">Deeper Analysis</button>` +
+        `<span class="det-model"></span></div>` +
+        `<div class="det-body"><span class="det-muted">Not analyzed yet.</span></div>` +
+        `</div>` +
+        `<div class="det-sec"><div class="det-head">Conversation</div>` +
+        `<div class="det-stats"></div></div>` +
+        `<div class="det-sec"><div class="det-head">Devices &mdash; from MAC vendor, no scanning</div>` +
+        `<div class="det-devices"><span class="det-muted">Loading&hellip;</span></div></div>` +
+        `<div class="det-sec"><div class="det-head">Protocols seen &mdash; from memory.md</div>` +
+        `<div class="det-ports"><span class="det-muted">Loading&hellip;</span></div></div>` +
+        `</div>`;
+    tr.appendChild(td);
+
+    g.detailsRow = tr;
+    g.detBody = td.querySelector(".det-body");
+    g.detModel = td.querySelector(".det-model");
+    g.detPorts = td.querySelector(".det-ports");
+    g.detStats = td.querySelector(".det-stats");
+    g.detDevices = td.querySelector(".det-devices");
+    td.querySelectorAll(".btn-ai").forEach(b => {
+        b.addEventListener("click", e => {
+            e.stopPropagation();
+            runAnalysis(g, b.dataset.tier);
+        });
+    });
+
+    // Sits directly after the header, so it is the first thing revealed on expand.
+    g.tbody.insertBefore(tr, g.tbody.children[1] || null);
+    return tr;
+}
+
+function fmtBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+function loadDetails(g) {
+    ensureDetailsRow(g);
+    fetch(`/api/conversation?key=${encodeURIComponent(g.key)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            if (!d || d.error) {
+                g.detPorts.innerHTML = `<span class="det-muted">${escHtml(d && d.error || "Unavailable")}</span>`;
+                return;
+            }
+            const protos = Object.entries(d.protocols)
+                .map(([k, v]) => `${escHtml(k)} <b>${v.toLocaleString()}</b>`).join(" &middot; ");
+            g.detStats.innerHTML =
+                `<span>packets <b>${d.total.toLocaleString()}</b></span>` +
+                `<span>volume <b>${fmtBytes(d.bytes)}</b></span>` +
+                `<span class="ip-stat">${ipMenu(d.ip_a)} &rarr; <b>${d.a_to_b.toLocaleString()}</b></span>` +
+                `<span class="ip-stat">${ipMenu(d.ip_b)} &rarr; <b>${d.b_to_a.toLocaleString()}</b></span>` +
+                `<span class="ip-stat">initiated by ${ipMenu(d.initiator)}</span>` +
+                (protos ? `<span>${protos}</span>` : "");
+
+            g.detDevices.innerHTML = [d.device_a, d.device_b]
+                .filter(Boolean)
+                .map(dev => {
+                    const guess = dev.guess ? ` &mdash; likely ${escHtml(dev.guess)}` : "";
+                    const rnd = dev.randomised
+                        ? ` <span class="det-muted">(randomised MAC)</span>` : "";
+                    return `<span class="det-port"><b>${escHtml(dev.ip)}</b> ` +
+                        `<span class="det-desc">${escHtml(dev.vendor || "unknown vendor")}` +
+                        `${guess}</span>${rnd}</span>`;
+                }).join("") ||
+                `<span class="det-muted">No MAC observed for either host (routed traffic).</span>`;
+
+            const known = d.ports.filter(p => p.matches.length);
+            g.detPorts.innerHTML = known.length
+                ? known.map(p => {
+                    const m = p.matches[0];
+                    const names = [...new Set(p.matches.map(x => x.acronym))].join(" / ");
+                    return `<span class="det-port" title="${escAttr(m.protocol)}">` +
+                        `<b>${p.port}</b> ${escHtml(names)} ` +
+                        `<span class="det-desc">${escHtml(m.description)}</span> ` +
+                        `<span class="det-x">&times;${p.count.toLocaleString()}</span></span>`;
+                  }).join("")
+                : `<span class="det-muted">No well-known ports in this conversation (ephemeral ports only).</span>`;
+
+            if (d.analysis && !g.analysisShown) renderAnalysis(g, d.analysis, true);
+        })
+        .catch(() => {
+            g.detPorts.innerHTML = `<span class="det-muted">Failed to load details.</span>`;
+        });
+}
+
+function renderAnalysis(g, res, restored) {
+    g.analysisShown = true;
+    g.detBody.textContent = res.analysis;
+    const at = res.generated_at ? new Date(res.generated_at).toLocaleTimeString() : "";
+    g.detModel.textContent = `${res.model}${restored ? ` · from ${at}` : ""}` +
+        (res.packets_at_run ? ` · ${res.packets_at_run.toLocaleString()} pkts` : "");
+}
+
+function runAnalysis(g, tier) {
+    ensureDetailsRow(g);
+    const btns = g.detailsRow.querySelectorAll(".btn-ai");
+    btns.forEach(b => b.disabled = true);
+    const model = tier === "deep" ? "gpt-oss:20b" : "qwen3:14b";
+    g.detBody.innerHTML = `<span class="det-muted">Analyzing with ${model}…</span>`;
+    g.detModel.textContent = "";
+
+    fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: g.key, tier }),
+    })
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            if (!ok || d.error) {
+                g.detBody.innerHTML = `<span class="det-muted">${escHtml(d.error || "Analysis failed.")}</span>`;
+                return;
+            }
+            renderAnalysis(g, d);
+        })
+        .catch(() => {
+            g.detBody.innerHTML = `<span class="det-muted">Analysis request failed.</span>`;
+        })
+        .finally(() => btns.forEach(b => b.disabled = false));
+}
+
+function toggleGroup(g) {
+    g.collapsed = !g.collapsed;
+    g.tbody.classList.toggle("collapsed", g.collapsed);
+    if (!g.collapsed) loadDetails(g);
+}
+
+function ingestPackets(packets) {
+    const batches = new Map();
+    for (const p of packets) {
+        if (p.no > lastNo) lastNo = p.no;
+        const key = convKey(p);
+        let b = batches.get(key);
+        if (!b) { b = []; batches.set(key, b); }
+        b.push(p);
+    }
+
+    for (const batch of batches.values()) {
+        const g = getOrCreateGroup(batch[0]);
+        const frag = document.createDocumentFragment();
+        let added = 0;
+        // Fresh traffic clears a prior close: an IP pair carries many TCP streams,
+        // so one stream's FIN does not mean the pair is finished.
+        g.closed = false;
+        for (const p of batch) {
+            g.total++;
+            if (!g.hostA && p.src_ip === g.ipA && p.src_hostname) g.hostA = p.src_hostname;
+            if (!g.hostB && p.dst_ip === g.ipB && p.dst_hostname) g.hostB = p.dst_hostname;
+            if (p.flags && (p.flags.includes("F") || p.flags.includes("R"))) g.closed = true;
+            if (!groupMatches(g) && !rowMatches(p)) continue;
+            frag.appendChild(buildRow(p, g));
+            added++;
+        }
+        if (added) {
+            g.tbody.appendChild(frag);
+            g.shown += added;
+            totalRows += added;
+        }
+        g.lastSeen = batch[batch.length - 1].no;
+        g.lastTouch = Date.now();
+    }
+}
+
+// Targets the oldest pkt-row rather than a fixed index: children[1] may be the
+// details row, and trimming by index would silently eat the analysis.
+function dropOldestRow(g) {
+    const row = g.tbody.querySelector("tr.pkt-row");
+    if (!row) return false;
+    g.tbody.removeChild(row);
+    g.shown--;
+    totalRows--;
+    return true;
+}
+
+function trimGroups() {
+    for (const g of groups.values()) {
+        while (g.shown > MAX_ROWS_PER_GROUP && dropOldestRow(g)) { /* trim */ }
+    }
+    for (let i = groupOrder.length - 1; i >= 0 && totalRows > MAX_TOTAL_ROWS; i--) {
+        const g = groupOrder[i];
+        while (g.shown > 0 && totalRows > MAX_TOTAL_ROWS && dropOldestRow(g)) { /* trim */ }
+    }
+}
+
+function refreshGroupStates() {
+    const now = Date.now();
+    for (const g of groups.values()) {
+        const state = g.closed ? "ended"
+            : (now - g.lastTouch < ACTIVE_WINDOW_MS ? "active" : "quiet");
+        if (g.state === state) continue;
+        g.state = state;
+        g.tbody.classList.remove("state-active", "state-quiet", "state-ended");
+        g.tbody.classList.add(`state-${state}`);
+        g.stateEl.textContent = state === "ended" ? "closed" : state;
+    }
+}
+
+function sweepGroups() {
+    const now = Date.now();
+    const doomed = [];
+    for (const g of groups.values()) {
+        if (now - (g.lastTouch || 0) > GROUP_IDLE_MS) doomed.push(g);
+    }
+    if (groups.size - doomed.length > MAX_GROUPS) {
+        const rest = groupOrder.filter(g => !doomed.includes(g));
+        doomed.push(...rest.slice(MAX_GROUPS));
+    }
+    for (const g of doomed) {
+        totalRows -= g.shown;
+        g.tbody.remove();
+        groups.delete(g.key);
+    }
+    if (doomed.length) groupOrder = groupOrder.filter(g => groups.has(g.key));
+}
+
+// Longest increasing subsequence of current DOM positions; those groups stay put
+// and only the remainder is moved, so the common "one group jumps to front" is 1 move.
+function lisKeep(seq) {
+    const piles = [], back = new Array(seq.length).fill(-1);
+    for (let i = 0; i < seq.length; i++) {
+        let lo = 0, hi = piles.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (seq[piles[mid]] < seq[i]) lo = mid + 1; else hi = mid;
+        }
+        if (lo > 0) back[i] = piles[lo - 1];
+        piles[lo] = i;
+    }
+    const keep = new Set();
+    let k = piles.length ? piles[piles.length - 1] : -1;
+    while (k >= 0) { keep.add(k); k = back[k]; }
+    return keep;
+}
+
+function reorderGroups() {
+    const desired = groupOrder.slice().sort((a, b) => {
+        const ea = Math.floor(a.lastSeen / EPOCH_MS), eb = Math.floor(b.lastSeen / EPOCH_MS);
+        return eb - ea || b.total - a.total;
+    });
+
+    let same = true;
+    for (let i = 0; i < desired.length; i++) {
+        if (desired[i] !== groupOrder[i]) { same = false; break; }
+    }
+    if (same) return;
+
+    const pos = new Map(groupOrder.map((g, i) => [g, i]));
+    const keep = lisKeep(desired.map(g => pos.get(g)));
+
+    const table = document.getElementById("pktTable");
+    for (let i = desired.length - 1; i >= 0; i--) {
+        if (keep.has(i)) continue;
+        const next = desired[i + 1];
+        table.insertBefore(desired[i].tbody, next ? next.tbody : null);
+    }
+    groupOrder = desired;
+}
+
+function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+        renderQueued = false;
+        const wrap = document.getElementById("pktTableWrap");
+        trimGroups();
+        // Moving a tbody drops any selection inside it, and reordering under a reader
+        // who has scrolled away yanks content out from under them.
+        if (autoFollow && document.getSelection().isCollapsed) reorderGroups();
+        for (const g of groups.values()) {
+            g.countEl.textContent = g.total.toLocaleString();
+            g.shownEl.textContent = g.shown < g.total ? `${g.shown.toLocaleString()} shown` : "";
+            g.tbody.classList.toggle("hidden", g.shown === 0);
+        }
+        refreshGroupStates();
+        document.getElementById("pktCount").textContent =
+            `${groups.size} conversations · ${totalRows.toLocaleString()} rows (${lastNo.toLocaleString()} captured)`;
+        if (autoFollow) wrap.scrollTop = 0;
+    });
+}
+
+function refreshPackets() {
+    fetch(`/api/packets?since=${lastNo}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(packets => {
+            if (!packets || !packets.length) return;
+            // Keep draining the server ring while paused, otherwise packets rotate
+            // out of it and are gone by the time the view resumes.
+            if (paused) {
+                for (const p of packets) {
+                    if (p.no > lastNo) lastNo = p.no;
+                    pausedBuffer.push(p);
+                }
+                const over = pausedBuffer.length - PAUSE_BUFFER_MAX;
+                if (over > 0) {
+                    pausedBuffer.splice(0, over);
+                    pausedDropped += over;
+                }
+                updatePauseLabel();
+                return;
+            }
+            ingestPackets(packets);
+            scheduleRender();
+        })
+        .catch(err => console.error("Packets fetch failed:", err));
+}
+
+function updatePauseLabel() {
+    const btn = document.getElementById("pktPauseBtn");
+    if (!paused) {
+        btn.textContent = "Capturing";
+        btn.className = "btn-pause running";
+        return;
+    }
+    btn.textContent = pausedBuffer.length
+        ? `Paused · ${pausedBuffer.length.toLocaleString()} queued`
+        : "Paused";
+    btn.className = "btn-pause paused";
+    document.getElementById("pktCount").textContent =
+        `Paused — ${pausedBuffer.length.toLocaleString()} queued` +
+        (pausedDropped ? `, ${pausedDropped.toLocaleString()} dropped` : "") +
+        ` · ${lastNo.toLocaleString()} captured, logging continues`;
+}
+
+function togglePause() {
+    paused = !paused;
+    if (!paused && pausedBuffer.length) {
+        ingestPackets(pausedBuffer);
+        pausedBuffer = [];
+        pausedDropped = 0;
+        scheduleRender();
+    }
+    updatePauseLabel();
+}
+
+function clearPackets() {
+    for (const g of groups.values()) g.tbody.remove();
+    groups.clear();
+    groupOrder = [];
+    totalRows = 0;
+    document.getElementById("pktCount").textContent = "0 packets";
+}
+
+document.getElementById("pktTableWrap").addEventListener("scroll", function() {
+    autoFollow = this.scrollTop < 40;
+});
+
+document.getElementById("pktFilter").addEventListener("input", function() {
+    filterText = this.value.trim();
+});
+
+function loadProfile() {
+    try {
+        return JSON.parse(localStorage.getItem("netmon_profile") || "{}");
+    } catch (e) { return {}; }
+}
+
+function saveProfile(key, value) {
+    try {
+        const p = loadProfile();
+        p[key] = value;
+        localStorage.setItem("netmon_profile", JSON.stringify(p));
+    } catch (e) {}
+}
+
+(function initColumnResize() {
+    const table = document.getElementById("pktTable");
+    const cols = table.querySelectorAll("colgroup col");
+    const ths = table.querySelectorAll("thead th");
+
+    const saved = loadProfile().col_widths;
+    if (saved && saved.length === cols.length) {
+        saved.forEach((w, i) => { cols[i].style.width = w + "px"; });
+    }
+
+    ths.forEach((th, i) => {
+        if (i >= cols.length - 1) return;
+        const handle = document.createElement("div");
+        handle.className = "col-resize-handle";
+        th.appendChild(handle);
+
+        handle.addEventListener("mousedown", e => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = th.offsetWidth;
+            handle.classList.add("dragging");
+            document.body.classList.add("col-resizing");
+
+            const onMove = ev => {
+                cols[i].style.width = Math.max(30, startW + ev.clientX - startX) + "px";
+            };
+            const onUp = () => {
+                handle.classList.remove("dragging");
+                document.body.classList.remove("col-resizing");
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                saveProfile("col_widths", Array.from(ths).map(t => t.offsetWidth));
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        });
+    });
+})();
+
+initRecon();
+refreshPackets();
+setInterval(refreshPackets, 1000);
+setInterval(() => { sweepGroups(); refreshGroupStates(); }, 5000);
+</script>
+</body>
+</html>

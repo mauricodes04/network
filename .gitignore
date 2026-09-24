@@ -1,0 +1,29 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Runtime output and captured network data
+captures/
+*.jsonl
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local/editor/OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Private session notes and exported conversations
+conversation.txt
