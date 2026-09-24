@@ -11,16 +11,19 @@ pip install -r requirements.txt
 
 ## Desktop Ollama listener
 
-On device
+# on AI Desktop
+```bash
+#Run `server_ollama.py` on the desktop that has the models installed:
+python server_ollama.py --host 0.0.0.0 --port 11435
+```
+
+# On device
 ```bash
 export OLLAMA_FALLBACK_URL=http://<AI DESKTOP IP>:11435/api/chat
 unset OLLAMA_PROXY_TOKEN
 ./run.sh
 ```
 
-on AI Desktop
-```bash
-#Run `server_ollama.py` on the desktop that has the models installed:
-python server_ollama.py --host 0.0.0.0 --port 11435
-```
-
+# Verify you're using these or better models:
+$ qwen3:14b {Standard}
+$ gpt-oss:20b {Extended}
